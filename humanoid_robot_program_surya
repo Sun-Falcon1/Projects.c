@@ -1,0 +1,905 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <ctype.h>
+#include <unistd.h>
+
+#define MAX_USERS 10
+#define MAX_ENTRIES 100
+#define MAX_RESPONSES 50
+#define JOURNAL_FILE "journal.dat"
+#define MOOD_FILE "mood.dat"
+#define USER_FILE "users.dat"
+#define LOG_FILE "conversation.log"
+#define MAX_WORDS 10
+#define MAX_TRIES 6
+#define PACMAN_WIDTH 10
+#define PACMAN_HEIGHT 5
+
+// A mental health companion ROBOT that can store the datas of an user , help them with their mental health problem and allows user to select the medication for them including exercises and playing games
+typedef struct
+{
+    int id;
+    char name[50];
+    int age;
+    char gender;
+    char emergency_contact[100];
+    int login_count;
+    time_t last_login;
+} User;
+
+typedef struct
+{
+    int id;
+    int userId;
+    time_t timestamp;
+    int mood_level;
+    char notes[200];
+} MoodEntry;
+
+typedef struct
+{
+    int id;
+    int userId;
+    time_t timestamp;
+    char content[500];
+    float sentiment;
+} JournalEntry;
+
+User current_user;
+User users[MAX_USERS];
+int user_count = 0;
+
+const char* hangman_words[MAX_WORDS] =
+{
+    "HOPE", "RECOVERY", "STRENGTH", "SUPPORT", "FRIEND",
+    "THERAPY", "HEALING", "MINDFUL", "CALM", "PEACE"
+};
+
+const char* responses[] =
+{
+    "I'm here to listen. Tell me more about how you're feeling.",
+    "That sounds challenging. Would you like to talk about it?",
+    "I notice you mentioned that. How long have you felt this way?",
+    "Your feelings are valid and important.",
+    "Let's try some breathing exercises together to help you relax.",
+    "Would you like to write about this in your journal?",
+    "Remember to be kind to yourself during difficult times.",
+    "I can suggest some coping strategies if you'd like.",
+    "Have you reached out to your support network about this?",
+    "I'm proud of you for sharing this with me."
+};
+
+void clear_screen()
+{
+    system("clear || cls");
+}
+
+void load_users()
+{
+    FILE *file = fopen(USER_FILE, "rb");
+    if (file == NULL) return;
+
+    user_count = fread(users, sizeof(User), MAX_USERS, file);
+    fclose(file);
+}
+
+void save_users()
+{
+    FILE *file = fopen(USER_FILE, "wb");
+    if (file == NULL)
+    {
+        printf("Error saving user data!\n");
+        return;
+    }
+
+    fwrite(users, sizeof(User), user_count, file);
+    fclose(file);
+}
+
+void register_user()
+{
+    clear_screen();
+    printf("\n--- New User Registration ---\n");
+
+    if (user_count >= MAX_USERS)
+    {
+        printf("Maximum number of users reached.\n");
+        return;
+    }
+
+    User new_user;
+    new_user.id = user_count + 1;
+
+    printf("Enter your name: ");
+    fgets(new_user.name, sizeof(new_user.name), stdin);
+    new_user.name[strcspn(new_user.name, "\n")] = '\0';
+
+    printf("Enter your age: ");
+    scanf("%d", &new_user.age);
+    getchar();
+
+    printf("Enter your gender (M/F/O): ");
+    scanf("%c", &new_user.gender);
+    getchar();
+
+    printf("Enter emergency contact info (name & phone): ");
+    fgets(new_user.emergency_contact, sizeof(new_user.emergency_contact), stdin);
+    new_user.emergency_contact[strcspn(new_user.emergency_contact, "\n")] = '\0';
+
+    new_user.login_count = 0;
+    new_user.last_login = time(NULL);
+
+    users[user_count++] = new_user;
+    current_user = new_user;
+    save_users();
+
+    printf("\nRegistration complete! Welcome, %s.\n", current_user.name);
+    sleep(2);
+}
+
+void login_user()
+{
+    clear_screen();
+    if (user_count == 0)
+    {
+        printf("No users registered. Please register first.\n");
+        register_user();
+        return;
+    }
+
+    char name[50];
+    printf("\n--- Welcome to your very own Mental Heath Companion Robot . Feel free to share your stress with me . User Login ---\n");
+    printf("Enter your name: ");
+    fgets(name, sizeof(name), stdin);
+    name[strcspn(name, "\n")] = '\0';
+
+    for (int i = 0; i < user_count; i++)
+    {
+        if (strcmp(users[i].name, name) == 0)
+        {
+            current_user = users[i];
+            current_user.login_count++;
+            current_user.last_login = time(NULL);
+            users[i] = current_user;
+            save_users();
+
+            printf("\nWelcome back, %s!\n", current_user.name);
+            printf("This is login #%d\n", current_user.login_count);
+            printf("Last login: %s", ctime(&current_user.last_login));
+            sleep(2);
+            return;
+        }
+    }
+
+    printf("User not found. Would you like to register? (Y/N): ");
+    char choice;
+    scanf("%c", &choice);
+    getchar();
+
+    if (toupper(choice) == 'Y')
+    {
+        register_user();
+    }
+    else
+    {
+        printf("Goodbye!\n");
+        exit(0);
+    }
+}
+
+void user_management()
+{
+    int choice;
+    do
+    {
+        clear_screen();
+        printf("\n=== User Management ===\n");
+        printf("1. Login\n");
+        printf("2. Register\n");
+        printf("3. Return to Main Menu\n");
+        printf("Choose an option: ");
+        scanf("%d", &choice);
+        getchar();
+
+        switch(choice)
+        {
+        case 1:
+            login_user();
+            break;
+        case 2:
+            register_user();
+            break;
+        case 3:
+            return;
+        default:
+            printf("Invalid choice!\n");
+        }
+    }
+    while (choice != 3);
+}
+
+void save_mood_entry(int mood, const char* notes)
+{
+    FILE *file = fopen(MOOD_FILE, "ab");
+    if (file == NULL)
+    {
+        printf("Error saving mood data!\n");
+        return;
+    }
+
+    MoodEntry entry;
+    entry.id = time(NULL);
+    entry.userId = current_user.id;
+    entry.timestamp = time(NULL);
+    entry.mood_level = mood;
+    strncpy(entry.notes, notes, sizeof(entry.notes));
+
+    fwrite(&entry, sizeof(MoodEntry), 1, file);
+    fclose(file);
+}
+
+float analyze_sentiment(const char* text)
+{
+    int positive = 0, negative = 0, total = 0;
+    const char* positive_words[] = {"happy", "good", "great", "joy", "love", "excited"};
+    const char* negative_words[] = {"sad", "bad", "angry", "hate", "depressed", "anxious"};
+
+    char lower_text[500];
+    strcpy(lower_text, text);
+    for (int i = 0; lower_text[i]; i++)
+    {
+        lower_text[i] = tolower(lower_text[i]);
+    }
+
+    for (int i = 0; i < 6; i++)
+    {
+        if (strstr(lower_text, positive_words[i]))
+        {
+            positive++;
+            total++;
+        }
+    }
+
+    for (int i = 0; i < 6; i++)
+    {
+        if (strstr(lower_text, negative_words[i]))
+        {
+            negative++;
+            total++;
+        }
+    }
+
+    if (total == 0) return 0.0f;
+
+    return (positive - negative) / (float)total;
+}
+
+void save_journal_entry(const char* content)
+{
+    FILE *file = fopen(JOURNAL_FILE, "ab");
+    if (file == NULL)
+    {
+        printf("Error saving journal entry!\n");
+        return;
+    }
+
+    JournalEntry entry;
+    entry.id = time(NULL);
+    entry.userId = current_user.id;
+    entry.timestamp = time(NULL);
+    strncpy(entry.content, content, sizeof(entry.content));
+    entry.sentiment = analyze_sentiment(content);
+
+    fwrite(&entry, sizeof(JournalEntry), 1, file);
+    fclose(file);
+}
+
+void log_conversation(const char* speaker, const char* message)
+{
+    FILE *log = fopen(LOG_FILE, "a");
+    if (log)
+    {
+        fprintf(log, "[%s] %s: %s\n", ctime(&(time_t)
+        {
+            time(NULL)
+        }), speaker, message);
+        fclose(log);
+    }
+}
+
+void conversation_mode()
+{
+    clear_screen();
+    printf("\nConversation Mode - Type 'quit' to end\n");
+    printf("%s: Hello %s, how are you feeling today?\n", "Companion", current_user.name);
+    log_conversation("Companion", "Hello, how are you feeling today?");
+
+    char input[500];
+    int response_count = sizeof(responses) / sizeof(responses[0]);
+
+    while (1)
+    {
+        printf("%s: ", current_user.name);
+        fgets(input, sizeof(input), stdin);
+        input[strcspn(input, "\n")] = '\0';
+
+        if (strcmp(input, "quit") == 0) break;
+
+        log_conversation(current_user.name, input);
+
+        float sentiment = analyze_sentiment(input);
+
+        int response_index;
+        if (sentiment < -0.5)
+        {
+            response_index = 0;
+        }
+        else if (sentiment < 0)
+        {
+            response_index = 1;
+        }
+        else if (sentiment < 0.5)
+        {
+            response_index = 3;
+        }
+        else
+        {
+            response_index = 9;
+        }
+
+        response_index = (response_index + rand() % 3) % response_count;
+
+        printf("Companion: %s\n", responses[response_index]);
+        log_conversation("Companion", responses[response_index]);
+
+        if (strstr(input, "hurt myself") || strstr(input, "suicide") ||
+                strstr(input, "end it all"))
+        {
+            emergency_protocol();
+            break;
+        }
+    }
+}
+
+void mood_tracker()
+{
+    clear_screen();
+    printf("\n--- Mood Tracker ---\n");
+    printf("How are you feeling today? (1-10 scale)\n");
+    printf("1 - Very bad\n");
+    printf("5 - Neutral\n");
+    printf("10 - Excellent\n");
+    printf("Enter your mood level: ");
+
+    int mood;
+    scanf("%d", &mood);
+    getchar();
+
+    if (mood < 1 || mood > 10)
+    {
+        printf("Invalid mood level. Please enter between 1-10.\n");
+        return;
+    }
+
+    printf("Would you like to add any notes about your mood? (optional): ");
+    char notes[200];
+    fgets(notes, sizeof(notes), stdin);
+    notes[strcspn(notes, "\n")] = '\0';
+
+    save_mood_entry(mood, notes);
+
+    printf("Thank you for sharing. ");
+    if (mood <= 3)
+    {
+        printf("I'm sorry you're feeling this way. Would you like to try a breathing exercise?\n");
+    }
+    else if (mood <= 6)
+    {
+        printf("It's okay to have neutral days. Would you like to talk about it?\n");
+    }
+    else
+    {
+        printf("I'm glad you're feeling good! Would you like to journal about it?\n");
+    }
+    sleep(2);
+}
+
+void journal_system()
+{
+    clear_screen();
+    printf("\n--- Journal System ---\n");
+    printf("Write whatever is on your mind. Type 'quit' on a new line to finish.\n");
+
+    char content[500] = "";
+    char line[100];
+
+    while (1)
+    {
+        fgets(line, sizeof(line), stdin);
+        if (strcmp(line, "quit\n") == 0) break;
+        strncat(content, line, sizeof(content) - strlen(content) - 1);
+    }
+
+    if (strlen(content) > 0)
+    {
+        save_journal_entry(content);
+        float sentiment = analyze_sentiment(content);
+
+        printf("Journal saved. ");
+        if (sentiment < -0.3)
+        {
+            printf("I notice your writing seems distressed. Would you like to talk?\n");
+        }
+        else if (sentiment < 0.3)
+        {
+            printf("Thank you for sharing your thoughts.\n");
+        }
+        else
+        {
+            printf("It's wonderful to hear positive reflections!\n");
+        }
+    }
+    else
+    {
+        printf("No content entered.\n");
+    }
+    sleep(2);
+}
+
+void breathing_exercise()
+{
+    clear_screen();
+    printf("\n--- Breathing Exercise ---\n");
+    printf("Let's do a 4-7-8 breathing exercise to help you relax.\n");
+    printf("I'll guide you through the steps. Ready?\n");
+
+    for (int cycle = 0; cycle < 3; cycle++)
+    {
+        printf("\nCycle %d:\n", cycle + 1);
+        printf("1. Breathe in deeply through your nose for 4 seconds...\n");
+        sleep(4);
+        printf("2. Hold your breath for 7 seconds...\n");
+        sleep(7);
+        printf("3. Exhale slowly through your mouth for 8 seconds...\n");
+        sleep(8);
+    }
+
+    printf("\nHow do you feel now? (better/same/worse): ");
+    char feedback[20];
+    fgets(feedback, sizeof(feedback), stdin);
+    feedback[strcspn(feedback, "\n")] = '\0';
+
+    if (strcmp(feedback, "better") == 0)
+    {
+        printf("I'm glad this helped you feel better!\n");
+    }
+    else
+    {
+        printf("Would you like to try another relaxation technique?\n");
+    }
+    sleep(2);
+}
+
+void emergency_protocol()
+{
+    clear_screen();
+    printf("\n=== EMERGENCY PROTOCOL ACTIVATED ===\n");
+    printf("I'm concerned about your safety. Please consider:\n");
+    printf("1. Contacting your emergency contact: %s\n", current_user.emergency_contact);
+    printf("2. Calling a mental health hotline\n");
+    printf("3. Reaching out to a trusted friend or family member\n");
+    printf("You are not alone, and help is available.\n");
+
+    FILE *log = fopen(LOG_FILE, "a");
+    if (log)
+    {
+        fprintf(log, "[EMERGENCY] %s - User expressed distress. Emergency contact: %s\n",
+                ctime(&(time_t)
+        {
+            time(NULL)
+        }), current_user.emergency_contact);
+        fclose(log);
+    }
+    sleep(5);
+}
+
+void view_history()
+{
+    clear_screen();
+    printf("\n--- Your History ---\n");
+
+    printf("\nMood History:\n");
+    FILE *mood_file = fopen(MOOD_FILE, "rb");
+    if (mood_file)
+    {
+        MoodEntry entry;
+        while (fread(&entry, sizeof(MoodEntry), 1, mood_file))
+        {
+            if (entry.userId == current_user.id)
+            {
+                printf("[%s] Mood: %d/10 - %s\n",
+                       ctime(&entry.timestamp), entry.mood_level, entry.notes);
+            }
+        }
+        fclose(mood_file);
+    }
+    else
+    {
+        printf("No mood history found.\n");
+    }
+
+    printf("\nJournal Entries:\n");
+    FILE *journal_file = fopen(JOURNAL_FILE, "rb");
+    if (journal_file)
+    {
+        JournalEntry entry;
+        while (fread(&entry, sizeof(JournalEntry), 1, journal_file))
+        {
+            if (entry.userId == current_user.id)
+            {
+                printf("[%s] Sentiment: %.2f\n%s\n",
+                       ctime(&entry.timestamp), entry.sentiment, entry.content);
+            }
+        }
+        fclose(journal_file);
+    }
+    else
+    {
+        printf("No journal entries found.\n");
+    }
+
+    printf("\nPress Enter to continue...");
+    getchar();
+}
+
+void display_hangman(int tries)
+{
+    printf("\n");
+    switch(tries)
+    {
+    case 0:
+        printf("  ____\n");
+        printf(" |    |\n");
+        printf(" |\n");
+        printf(" |\n");
+        printf(" |\n");
+        printf("_|_\n");
+        break;
+    case 1:
+        printf("  ____\n");
+        printf(" |    |\n");
+        printf(" |    O\n");
+        printf(" |\n");
+        printf(" |\n");
+        printf("_|_\n");
+        break;
+    case 2:
+        printf("  ____\n");
+        printf(" |    |\n");
+        printf(" |    O\n");
+        printf(" |    |\n");
+        printf(" |\n");
+        printf("_|_\n");
+        break;
+    case 3:
+        printf("  ____\n");
+        printf(" |    |\n");
+        printf(" |    O\n");
+        printf(" |   /|\n");
+        printf(" |\n");
+        printf("_|_\n");
+        break;
+    case 4:
+        printf("  ____\n");
+        printf(" |    |\n");
+        printf(" |    O\n");
+        printf(" |   /|\\\n");
+        printf(" |\n");
+        printf("_|_\n");
+        break;
+    case 5:
+        printf("  ____\n");
+        printf(" |    |\n");
+        printf(" |    O\n");
+        printf(" |   /|\\\n");
+        printf(" |   /\n");
+        printf("_|_\n");
+        break;
+    case 6:
+        printf("  ____\n");
+        printf(" |    |\n");
+        printf(" |    O\n");
+        printf(" |   /|\\\n");
+        printf(" |   / \\\n");
+        printf("_|_\n");
+        break;
+    }
+}
+
+void play_hangman()
+{
+    clear_screen();
+    printf("\n=== Hangman Game ===\n");
+    printf("A word game to help distract and engage your mind\n");
+
+    srand(time(NULL));
+    const char* word = hangman_words[rand() % MAX_WORDS];
+    int word_length = strlen(word);
+    char guessed[26] = {0};
+    char display[word_length + 1];
+
+    for (int i = 0; i < word_length; i++)
+    {
+        display[i] = '_';
+    }
+    display[word_length] = '\0';
+
+    int tries = 0;
+    int correct = 0;
+
+    while (tries < MAX_TRIES && correct < word_length)
+    {
+        printf("\nWord: ");
+        for (int i = 0; i < word_length; i++)
+        {
+            printf("%c ", display[i]);
+        }
+
+        printf("\nGuessed letters: ");
+        for (int i = 0; i < 26; i++)
+        {
+            if (guessed[i])
+            {
+                printf("%c ", 'A' + i);
+            }
+        }
+
+        display_hangman(tries);
+
+        printf("\nEnter a letter (A-Z): ");
+        char input;
+        scanf(" %c", &input);
+        getchar();
+
+        input = toupper(input);
+        if (input < 'A' || input > 'Z')
+        {
+            printf("Invalid input! Please enter A-Z.\n");
+            continue;
+        }
+
+        if (guessed[input - 'A'])
+        {
+            printf("You already guessed that letter!\n");
+            continue;
+        }
+
+        guessed[input - 'A'] = 1;
+        int found = 0;
+
+        for (int i = 0; i < word_length; i++)
+        {
+            if (word[i] == input)
+            {
+                display[i] = input;
+                correct++;
+                found = 1;
+            }
+        }
+
+        if (!found)
+        {
+            tries++;
+            printf("Incorrect guess! %d tries remaining.\n", MAX_TRIES - tries);
+        }
+    }
+
+    clear_screen();
+    display_hangman(tries);
+    printf("\nWord was: %s\n", word);
+
+    if (correct == word_length)
+    {
+        printf("Congratulations! You won!\n");
+        printf("Remember: Just like in this game, with persistence you can overcome challenges!\n");
+    }
+    else
+    {
+        printf("Game over. Better luck next time!\n");
+        printf("Remember: It's okay to not succeed on the first try. What matters is that you tried.\n");
+    }
+
+    printf("\nPress Enter to continue...");
+    getchar();
+}
+
+void play_pacman()
+{
+    clear_screen();
+    printf("\n=== Simple Pac-Man ===\n");
+    printf("Use WASD to move. Eat all dots to win!\n");
+    printf("Press Q to quit\n");
+
+    char grid[PACMAN_HEIGHT][PACMAN_WIDTH];
+    int pacman_x = 1, pacman_y = 1;
+    int dots = 0;
+    int score = 0;
+
+    for (int y = 0; y < PACMAN_HEIGHT; y++)
+    {
+        for (int x = 0; x < PACMAN_WIDTH; x++)
+        {
+            if (x == 0 || x == PACMAN_WIDTH-1 || y == 0 || y == PACMAN_HEIGHT-1)
+            {
+                grid[y][x] = '#';
+            }
+            else
+            {
+                grid[y][x] = '.';
+                dots++;
+            }
+        }
+    }
+
+    grid[pacman_y][pacman_x] = 'P';
+
+    char input;
+    do
+    {
+        clear_screen();
+        printf("Score: %d\n", score);
+
+        for (int y = 0; y < PACMAN_HEIGHT; y++)
+        {
+            for (int x = 0; x < PACMAN_WIDTH; x++)
+            {
+                printf("%c ", grid[y][x]);
+            }
+            printf("\n");
+        }
+
+        printf("Move (WASD): ");
+        scanf(" %c", &input);
+        getchar();
+        input = tolower(input);
+
+        int new_x = pacman_x, new_y = pacman_y;
+
+        switch(input)
+        {
+        case 'w':
+            new_y--;
+            break;
+        case 'a':
+            new_x--;
+            break;
+        case 's':
+            new_y++;
+            break;
+        case 'd':
+            new_x++;
+            break;
+        case 'q':
+            break;
+        default:
+            printf("Invalid input!\n");
+            sleep(1);
+            continue;
+        }
+
+        if (input == 'q') break;
+
+        if (new_x <= 0 || new_x >= PACMAN_WIDTH-1 || new_y <= 0 || new_y >= PACMAN_HEIGHT-1)
+        {
+            printf("Can't move through walls!\n");
+            sleep(1);
+            continue;
+        }
+
+        grid[pacman_y][pacman_x] = ' ';
+        pacman_x = new_x;
+        pacman_y = new_y;
+
+        if (grid[pacman_y][pacman_x] == '.')
+        {
+            score++;
+            dots--;
+        }
+
+        grid[pacman_y][pacman_x] = 'P';
+
+        if (dots == 0)
+        {
+            clear_screen();
+            printf("Congratulations! You won with score %d!\n", score);
+            printf("Games can be a great way to relieve stress and improve mood.\n");
+            printf("Press Enter to continue...");
+            getchar();
+            break;
+        }
+
+    }
+    while (input != 'q');
+}
+
+void main_menu()
+{
+    int choice;
+
+    while (1)
+    {
+        clear_screen();
+        printf("\n=== Main Menu ===\n");
+        printf("User: %s (Age: %d)\n", current_user.name, current_user.age);
+        printf("1. Conversation Mode\n");
+        printf("2. Mood Tracker\n");
+        printf("3. Journal System\n");
+        printf("4. Breathing Exercise\n");
+        printf("5. View History\n");
+        printf("6. Emergency Protocol\n");
+        printf("7. Play Hangman Game\n");
+        printf("8. Play Pac-Man Game\n");
+        printf("9. Switch User\n");
+        printf("10. Exit\n");
+        printf("Choose an option: ");
+        scanf("%d", &choice);
+        getchar();
+
+        switch (choice)
+        {
+        case 1:
+            conversation_mode();
+            break;
+        case 2:
+            mood_tracker();
+            break;
+        case 3:
+            journal_system();
+            break;
+        case 4:
+            breathing_exercise();
+            break;
+        case 5:
+            view_history();
+            break;
+        case 6:
+            emergency_protocol();
+            break;
+        case 7:
+            play_hangman();
+            break;
+        case 8:
+            play_pacman();
+            break;
+        case 9:
+            user_management();
+            break;
+        case 10:
+            printf("Goodbye! Remember you're not alone.\n");
+            exit(0);
+        default:
+            printf("Invalid choice. Please try again.\n");
+            sleep(1);
+        }
+    }
+}
+
+int main()
+{
+    load_users();
+
+    if (user_count == 0)
+    {
+        printf("No users found. Please register.\n");
+        register_user();
+    }
+    else
+    {
+        login_user();
+    }
+
+    main_menu();
+    return 0;
+}
